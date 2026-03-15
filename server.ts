@@ -206,6 +206,59 @@ function mapPainScore(drawdown: number) {
   return Math.max(0, Math.min(8, (drawdown / 0.5) * 8));
 }
 
+// Calculate Technical Indicators
+function calculateTechnicalIndicators(historicalData: any[]) {
+  if (historicalData.length < 14) return historicalData;
+
+  const prices = historicalData.map(d => d.close);
+  
+  // MA200
+  for (let i = 0; i < historicalData.length; i++) {
+    if (i >= 199) {
+      const slice = prices.slice(i - 199, i + 1);
+      historicalData[i].ma200 = slice.reduce((a, b) => a + b, 0) / 200;
+    } else {
+      historicalData[i].ma200 = null;
+    }
+  }
+
+  // RSI (14)
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 1; i < historicalData.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (i <= 14) {
+      if (change > 0) gains += change;
+      else losses -= change;
+      
+      if (i === 14) {
+        let avgGain = gains / 14;
+        let avgLoss = losses / 14;
+        historicalData[i].rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+      } else {
+        historicalData[i].rsi = null;
+      }
+    } else {
+      const currentGain = change > 0 ? change : 0;
+      const currentLoss = change < 0 ? -change : 0;
+      
+      // Use smoothed moving average for RSI
+      const prevAvgGain = (historicalData[i-1].rsi_avg_gain || (gains/14));
+      const prevAvgLoss = (historicalData[i-1].rsi_avg_loss || (losses/14));
+      
+      const avgGain = (prevAvgGain * 13 + currentGain) / 14;
+      const avgLoss = (prevAvgLoss * 13 + currentLoss) / 14;
+      
+      historicalData[i].rsi_avg_gain = avgGain;
+      historicalData[i].rsi_avg_loss = avgLoss;
+      historicalData[i].rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+    }
+  }
+
+  return historicalData;
+}
+
 const ETF_MAPPING: Record<string, { yfCode: string, proxy: string, name: string }> = {
   '513100': { yfCode: '513100.SS', proxy: 'QQQ', name: '纳斯达克100ETF' },
   '513500': { yfCode: '513500.SS', proxy: 'SPY', name: '标普500ETF' },
@@ -242,6 +295,8 @@ app.get("/api/etf/:market/:code", async (req, res) => {
       currentDrawdown: null,
       currentPrice: null,
       historicalData: [],
+      holdings: [],
+      sectors: [],
       valueScore: 0,
       painScore: 0,
       totalScore: 0,
@@ -352,11 +407,11 @@ app.get("/api/etf/:market/:code", async (req, res) => {
       const startDate = new Date();
       
       if (interval === '1d') {
-        startDate.setFullYear(endDate.getFullYear() - 1); // 1 year for daily
+        startDate.setFullYear(endDate.getFullYear() - 2); // 2 years for daily to get MA200
       } else if (interval === '1wk') {
-        startDate.setFullYear(endDate.getFullYear() - 5); // 5 years for weekly
+        startDate.setFullYear(endDate.getFullYear() - 5); 
       } else {
-        startDate.setFullYear(endDate.getFullYear() - 10); // 10 years for monthly
+        startDate.setFullYear(endDate.getFullYear() - 10); 
       }
       
       const chart = await yahooFinance.chart(yfCode, { period1: startDate, interval: interval as any });
@@ -365,7 +420,7 @@ app.get("/api/etf/:market/:code", async (req, res) => {
         result.currentDrawdown = calculateMaxDrawdown(prices);
         
         // Populate historical data for chart
-        result.historicalData = chart.quotes
+        const rawHistorical = chart.quotes
           .filter((q: any) => q.close != null)
           .map((q: any) => ({
             date: q.date.toISOString().split('T')[0],
@@ -375,6 +430,8 @@ app.get("/api/etf/:market/:code", async (req, res) => {
             close: q.close,
             price: q.close
           }));
+          
+        result.historicalData = calculateTechnicalIndicators(rawHistorical);
           
         if (!result.currentPrice && result.historicalData.length > 0) {
           result.currentPrice = result.historicalData[result.historicalData.length - 1].price;
@@ -387,7 +444,7 @@ app.get("/api/etf/:market/:code", async (req, res) => {
       result.currentDrawdown = 0;
     }
 
-    // 4. Calculate Scores
+    // 5. Calculate Scores
     const maxPercentile = Math.max(result.pePercentile || 0, result.pbPercentile || 0);
     result.valueScore = mapValueScore(maxPercentile);
     result.painScore = mapPainScore(result.currentDrawdown || 0);

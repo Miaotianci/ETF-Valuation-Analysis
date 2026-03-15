@@ -17,6 +17,8 @@ export default function Dashboard() {
   const [interval, setInterval] = useState('1mo');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentData, setCurrentData] = useState<ETFData | null>(null);
+  const [compareData, setCompareData] = useState<ETFData | null>(null);
+  const [isCompareMode, setIsCompareMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,14 +34,19 @@ export default function Dashboard() {
     localStorage.setItem('etfHistoryV3', JSON.stringify(newHistory));
   };
 
-  const handleSearch = async (searchCode: string, searchMarket: string, searchInterval: string = interval) => {
+  const handleSearch = async (searchCode: string, searchMarket: string, searchInterval: string = interval, isComparing: boolean = false) => {
     if (!searchCode.trim()) return;
     setLoading(true);
     setError('');
     try {
       const res = await axios.get(`/api/etf/${searchMarket}/${searchCode}?interval=${searchInterval}`);
       const data: ETFData = res.data;
-      setCurrentData(data);
+      
+      if (isComparing) {
+        setCompareData(data);
+      } else {
+        setCurrentData(data);
+      }
       
       const newEntry: HistoryItem = { 
         market: searchMarket, 
@@ -111,13 +118,27 @@ export default function Dashboard() {
                   className="w-full bg-[#111111] border border-gray-800 rounded-2xl py-3 pl-10 pr-20 text-sm text-white placeholder-gray-700 focus:outline-none focus:border-indigo-500/50 transition-all"
                 />
                 <button
-                  onClick={() => handleSearch(etfCode, market)}
+                  onClick={() => handleSearch(etfCode, market, interval, isCompareMode && !!currentData)}
                   disabled={loading || !etfCode}
                   className="absolute right-1.5 bg-white text-black hover:bg-gray-200 px-4 py-1.5 rounded-xl text-xs font-black transition-colors disabled:opacity-50"
                 >
-                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '分析'}
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (isCompareMode && currentData ? '对比' : '分析')}
                 </button>
               </div>
+
+              <button
+                onClick={() => {
+                  setIsCompareMode(!isCompareMode);
+                  if (isCompareMode) setCompareData(null);
+                }}
+                className={`px-4 py-2 rounded-2xl text-xs font-bold border transition-all ${
+                  isCompareMode 
+                    ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-400' 
+                    : 'bg-[#111111] border-gray-800 text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {isCompareMode ? '退出对比' : '开启对比'}
+              </button>
             </div>
           </div>
 
@@ -130,34 +151,65 @@ export default function Dashboard() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-10 gap-8">
+        <div className={`grid grid-cols-1 ${isCompareMode ? 'lg:grid-cols-12' : 'lg:grid-cols-10'} gap-8`}>
           
           {/* Left Panel: Details */}
-          <div className="lg:col-span-6">
-            {currentData ? (
-              <ETFDetails 
-                data={currentData} 
-                interval={interval} 
-                onIntervalChange={(i) => {
-                  setInterval(i);
-                  handleSearch(currentData.code, currentData.market, i);
-                }} 
-              />
-            ) : (
-              <div className="h-[600px] bg-[#111111] border border-gray-800 rounded-3xl flex flex-col items-center justify-center text-center p-12 border-dashed">
-                <div className="w-20 h-20 bg-indigo-500/5 rounded-full flex items-center justify-center mb-6">
-                  <Search className="w-10 h-10 text-indigo-500/40" />
-                </div>
-                <h3 className="text-xl font-bold text-white mb-2">开始您的 ETF 分析</h3>
-                <p className="text-gray-500 text-sm max-w-sm">
-                  在上方输入 ETF 代码并选择对应市场，我们将为您提供深度的估值数据与历史回撤分析。
-                </p>
+          <div className={`${isCompareMode ? 'lg:col-span-9' : 'lg:col-span-6'}`}>
+            <div className={`grid grid-cols-1 ${isCompareMode ? 'md:grid-cols-2' : ''} gap-6`}>
+              <div className="space-y-6">
+                {currentData ? (
+                  <ETFDetails 
+                    data={currentData} 
+                    interval={interval} 
+                    compact={isCompareMode}
+                    onIntervalChange={(i) => {
+                      setInterval(i);
+                      handleSearch(currentData.code, currentData.market, i);
+                    }} 
+                  />
+                ) : (
+                  <div className="h-[600px] bg-[#111111] border border-gray-800 rounded-3xl flex flex-col items-center justify-center text-center p-12 border-dashed">
+                    <div className="w-20 h-20 bg-indigo-500/5 rounded-full flex items-center justify-center mb-6">
+                      <Search className="w-10 h-10 text-indigo-500/40" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">开始您的 ETF 分析</h3>
+                    <p className="text-gray-500 text-sm max-w-sm">
+                      在上方输入 ETF 代码并选择对应市场，我们将为您提供深度的估值数据与历史回撤分析。
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
+
+              {isCompareMode && (
+                <div className="space-y-6">
+                  {compareData ? (
+                    <ETFDetails 
+                      data={compareData} 
+                      interval={interval} 
+                      compact={true}
+                      onIntervalChange={(i) => {
+                        setInterval(i);
+                        handleSearch(compareData.code, compareData.market, i, true);
+                      }} 
+                    />
+                  ) : (
+                    <div className="h-full min-h-[600px] bg-[#111111] border border-gray-800 rounded-3xl flex flex-col items-center justify-center text-center p-12 border-dashed">
+                      <div className="w-20 h-20 bg-indigo-500/5 rounded-full flex items-center justify-center mb-6">
+                        <Search className="w-10 h-10 text-indigo-500/40" />
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">添加对比标的</h3>
+                      <p className="text-gray-500 text-sm max-w-sm">
+                        在上方搜索框输入第二个 ETF 代码，点击“对比”按钮即可开始横向测评。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Panel: History Sidebar */}
-          <div className="lg:col-span-4 h-[calc(100vh-250px)] lg:sticky lg:top-8">
+          <div className={`${isCompareMode ? 'lg:col-span-3' : 'lg:col-span-4'} h-[calc(100vh-250px)] lg:sticky lg:top-8`}>
             <HistorySidebar 
               history={history} 
               onSelect={handleHistorySelect} 

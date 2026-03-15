@@ -5,6 +5,8 @@ export interface HistoricalData {
   high?: number;
   low?: number;
   close?: number;
+  ma200?: number | null;
+  rsi?: number | null;
 }
 
 export interface ETFData {
